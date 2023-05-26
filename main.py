@@ -7,6 +7,33 @@ mp_face_mesh = mp.solutions.face_mesh
 face_mesh = mp_face_mesh.FaceMesh(min_detection_confidence=0.5, min_tracking_confidence=0.5)
 cap = cv2.VideoCapture(0)
 
+left_eye_indexes = [362, 398, 384, 385, 386, 387, 388, 467, 263, 249, 390, 373, 374, 380, 381, 382]
+right_eye_indexes = [33, 246, 161, 160, 159, 158, 157, 173, 133, 154, 153, 145, 144, 163, 7]
+# mouth_indexes = [61, 185, 40, 39, 87, 0, 367, 269, 270, 409, 291, 375, 321, 314, 17, 84, 181, 91, 146]
+mouth_indexes = [76, 184, 74, 73, 72, 11, 302, 303, 304, 408, 292, 320, 404, 315, 16, 85, 180, 90, 77]
+
+
+def max_(data, index):
+    # this will only be used for coordinates within the image so there is no need for negative numbers
+    j = 0
+    m = 0
+    for idx, i in enumerate(data):
+        if i[index] > m:
+            m = i[index]
+            j = idx
+    return data[j]
+
+
+def min_(data, index):
+    j = 0
+    m = 1000
+    for idx, i in enumerate(data):
+        if i[index] < m:
+            m = i[index]
+            j = idx
+    return data[j]
+
+
 while True:
     ret, image = cap.read()
 
@@ -61,35 +88,21 @@ while True:
             # left eye corner
             l2 = face_landmarks.landmark[263]
             xdiff = (l2.x - l1.x) * img_w
-            ydiff = (l2.y - l1.y) * img_w
-            # center x
-            # cx = (l1.x * img_w) + xdiff / 2
+            ydiff = (l2.y - l1.y) * img_h
             z = math.atan2(ydiff/2, xdiff/2) * 180 / math.pi
+            left_eye_points = [(int(face_landmarks.landmark[i].x * img_w), int(face_landmarks.landmark[i].y * img_h)) for i in left_eye_indexes]
+            right_eye_points = [(int(face_landmarks.landmark[i].x * img_w), int(face_landmarks.landmark[i].y * img_h)) for i in right_eye_indexes]
+            mouth_points = [(int(face_landmarks.landmark[i].x * img_w), int(face_landmarks.landmark[i].y * img_h)) for i in mouth_indexes]
+            for point in left_eye_points:
+                cv2.circle(image, point, 2, (255, 255, 255), 1)
+            for point in right_eye_points:
+                cv2.circle(image, point, 2, (255, 255, 255), 1)
+            for point in mouth_points:
+                cv2.circle(image, point, 2, (255, 255, 255), 1)
 
-            print(x, y, z)
+            # print(x, y, z)
 
-            # See where the user's head tilting
-            # if y < -10:
-            #     text = "Looking Left"
-            # elif y > 10:
-            #     text = "Looking Right"
-            # elif x < -10:
-            #     text = "Looking Down"
-            # elif x > 10:
-            #     text = "Looking up"
-            # else:
-            #     text = "Forward"
-
-            # Add the text on the image
             cv2.putText(image, "pitch:%.2f, yaw:%.2f, roll:%.2f" % (x, y, z), (50, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
-
-            # Display the nose direction
-            # nose_3d_projection, jacobian = cv2.projectPoints(nose_3d, rot_vec, trans_vec, cam_matrix, dist_matrix)
-            #
-            # p1 = (int(nose_2d[0]), int(nose_2d[1]))
-            # p2 = (int(nose_3d_projection[0][0][0]), int(nose_3d_projection[0][0][1]))
-            #
-            # cv2.line(image, p1, p2, (255, 0, 0), 2)
 
             cv2.imshow('Head Pose Estimation', image)
         if cv2.waitKey(10) == ord("q"):
