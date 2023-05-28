@@ -19,34 +19,14 @@ right_eye_indexes = [33, 246, 161, 160, 159, 158, 157, 173, 133, 154, 153, 145, 
 mouth_indexes = [78, 183, 42, 41, 38, 12, 268, 271, 272, 407, 292, 325, 319, 403, 316, 15, 86, 179, 89, 96]
 
 
-def max_(data, index):
-    # this will only be used for coordinates within the image so there is no need for negative numbers
-    j = 0
-    m = 0
-    for idx, i in enumerate(data):
-        if i[index] > m:
-            m = i[index]
-            j = idx
-    return data[j]
-
-
-def min_(data, index):
-    j = 0
-    m = 1000
-    for idx, i in enumerate(data):
-        if i[index] < m:
-            m = i[index]
-            j = idx
-    return data[j]
-
-
 def get_data(image: np.ndarray):
     """
     Gets the face data from an image
     :param image: A numpy array of image in color format RGB
     :return: The data
-    formatted as follows: {rotation3d: {roll, pitch, yaw}, left_eye: {points, bbox}, right_eye: {points, bbox},
-    mouth: {points, bbox}}. bbox = [x1, y1, x2, y2]. Points are pixel coordinates. roll/pitch/yaw are in degrees.
+    formatted as follows: {rotation3d: {roll, pitch, yaw}, left_eye: {points, bbox, pupil: {center, radius},
+    right_eye: {points, bbox, pupil: {center, radius},mouth: {points, bbox}}. bbox = [x1, y1, x2, y2]. Points are pixel
+    coordinates. roll/pitch/yaw are in degrees.
     """
     image.flags.writeable = False
     results = face_mesh.process(image)
@@ -60,78 +40,112 @@ def get_data(image: np.ndarray):
     data = {
         "face": False,
         "rotation3d": {"roll": 0, "pitch": 0, "yaw": 0},
-        "left_eye": {"points": [], "bbox": []},
-        "right_eye": {"points": [], "bbox": []},
+        "left_eye": {"points": [], "bbox": [], "pupil": {"center": [], "radius": 0}},
+        "right_eye": {"points": [], "bbox": [], "pupil": {"center": [], "radius": 0}},
         "mouth": {"points": [], "bbox": []}
     }
     if results.multi_face_landmarks:
-        # TODO: cleanup
-        for face_landmarks in [results.multi_face_landmarks[0]]:
-            for idx, lm in enumerate(face_landmarks.landmark):
-                if idx == 33 or idx == 263 or idx == 1 or idx == 61 or idx == 291 or idx == 199:
-                    # if idx == 1:
-                        # nose_2d = (lm.x * img_w, lm.y * img_h)
-                        # nose_3d = (lm.x * img_w, lm.y * img_h, lm.z * 8000)
+        data["face"] = True
+        face_landmarks = results.multi_face_landmarks[0]
+        for idx, lm in enumerate(face_landmarks.landmark):
+            if idx == 33 or idx == 263 or idx == 1 or idx == 61 or idx == 291 or idx == 199:
+                # if idx == 1:
+                # nose_2d = (lm.x * img_w, lm.y * img_h)
+                # nose_3d = (lm.x * img_w, lm.y * img_h, lm.z * 8000)
 
-                    x, y = int(lm.x * img_w), int(lm.y * img_h)
+                x, y = int(lm.x * img_w), int(lm.y * img_h)
 
-                    # Get the 2D Coordinates
-                    face_2d.append([x, y])
+                # Get the 2D Coordinates
+                face_2d.append([x, y])
 
-                    # Get the 3D Coordinates
-                    face_3d.append([x, y, lm.z])
+                # Get the 3D Coordinates
+                face_3d.append([x, y, lm.z])
 
-                    # Convert it to the NumPy array
-            face_2d = np.array(face_2d, dtype=np.float64)
+                # Convert it to the NumPy array
+        face_2d = np.array(face_2d, dtype=np.float64)
 
-            # Convert it to the NumPy array
-            face_3d = np.array(face_3d, dtype=np.float64)
-            # The camera matrix
-            focal_length = 1 * img_w
+        # Convert it to the NumPy array
+        face_3d = np.array(face_3d, dtype=np.float64)
+        # The camera matrix
+        focal_length = 1 * img_w
 
-            cam_matrix = np.array([[focal_length, 0, img_h / 2],
-                                   [0, focal_length, img_w / 2],
-                                   [0, 0, 1]])
-            dist_matrix = np.zeros((4, 1), dtype=np.float64)
+        cam_matrix = np.array([[focal_length, 0, img_h / 2],
+                               [0, focal_length, img_w / 2],
+                               [0, 0, 1]])
+        dist_matrix = np.zeros((4, 1), dtype=np.float64)
 
-            _, rot_vec, trans_vec = cv2.solvePnP(face_3d, face_2d, cam_matrix, dist_matrix)
-            rmat, _ = cv2.Rodrigues(rot_vec)
+        _, rot_vec, _ = cv2.solvePnP(face_3d, face_2d, cam_matrix, dist_matrix)
+        rmat, _ = cv2.Rodrigues(rot_vec)
 
-            # angles, mtxR, mtxQ, Qx, Qy, Qz = cv2.RQDecomp3x3(rmat)
-            angles, _, _, _, _, _ = cv2.RQDecomp3x3(rmat)
-            x = angles[0] * 720 - 26
-            y = (angles[1] * 720) - 5
+        # angles, mtxR, mtxQ, Qx, Qy, Qz = cv2.RQDecomp3x3(rmat)
+        angles, _, _, _, _, _ = cv2.RQDecomp3x3(rmat)
+        x = angles[0] * 720 - 26
+        y = (angles[1] * 720) - 5
 
-            l1 = face_landmarks.landmark[33]
-            # left eye left corner
-            l2 = face_landmarks.landmark[263]
-            xdiff = (l2.x - l1.x) * img_w
-            ydiff = (l2.y - l1.y) * img_h
-            z = (math.atan2(ydiff/2, xdiff/2) * 180 / math.pi) + 4
-            left_eye_points = [(int(face_landmarks.landmark[i].x * img_w), int(face_landmarks.landmark[i].y * img_h)) for i in left_eye_indexes]
-            right_eye_points = [(int(face_landmarks.landmark[i].x * img_w), int(face_landmarks.landmark[i].y * img_h)) for i in right_eye_indexes]
-            mouth_points = [(int(face_landmarks.landmark[i].x * img_w), int(face_landmarks.landmark[i].y * img_h)) for i in mouth_indexes]
+        l1 = face_landmarks.landmark[33]
+        # left eye left corner
+        l2 = face_landmarks.landmark[263]
+        xdiff = (l2.x - l1.x) * img_w
+        ydiff = (l2.y - l1.y) * img_h
+        z = (math.atan2(ydiff / 2, xdiff / 2) * 180 / math.pi) + 4
+        data["rotation3d"] = {"pitch": x, "yaw": y, "roll": z}
 
-            # TODO: optimize
-            y1 = min_(left_eye_points, 1)[1]
-            x1 = min_(left_eye_points, 0)[0]
-            y2 = max_(left_eye_points, 1)[1]
-            x2 = max_(left_eye_points, 0)[0]
-            data["left_eye"] = {"points": left_eye_points, "bbox": [x1, y1, x2, y2]}
+        left_eye_points = [(int(face_landmarks.landmark[i].x * img_w), int(face_landmarks.landmark[i].y * img_h)) for i
+                           in left_eye_indexes]
+        right_eye_points = [(int(face_landmarks.landmark[i].x * img_w), int(face_landmarks.landmark[i].y * img_h)) for i
+                            in right_eye_indexes]
+        mouth_points = [(int(face_landmarks.landmark[i].x * img_w), int(face_landmarks.landmark[i].y * img_h)) for i in
+                        mouth_indexes]
 
-            y1 = min_(right_eye_points, 1)[1]
-            x1 = min_(right_eye_points, 0)[0]
-            y2 = max_(right_eye_points, 1)[1]
-            x2 = max_(right_eye_points, 0)[0]
-            data["right_eye"] = {"points": right_eye_points, "bbox": [x1, y1, x2, y2]}
+        y1 = min(left_eye_points, key=lambda p: p[1])[1]
+        x1 = min(left_eye_points, key=lambda p: p[0])[0]
+        y2 = max(left_eye_points, key=lambda p: p[1])[1]
+        x2 = max(left_eye_points, key=lambda p: p[0])[0]
+        bbox = [x1, y1, x2, y2]
+        aspect_ratio = (face_landmarks.landmark[263].x - face_landmarks.landmark[362].x) / (
+                    face_landmarks.landmark[374].y - face_landmarks.landmark[386].y)
+        left_cropped = image[bbox[1]:bbox[3], bbox[0]:bbox[2]]
+        left_cropped = cv2.cvtColor(left_cropped, cv2.COLOR_RGB2GRAY)
+        _, _, min_loc, _ = cv2.minMaxLoc(left_cropped)
+        data["left_eye"] = {"points": left_eye_points, "bbox": bbox,
+                            "pupil": {"center": min_loc, "radius": 5}}
+        data["left_eye"]["aspect_ratio"] = aspect_ratio
 
-            y1 = min_(mouth_points, 1)[1]
-            x1 = min_(mouth_points, 0)[0]
-            y2 = max_(mouth_points, 1)[1]
-            x2 = max_(mouth_points, 0)[0]
-            data["mouth"] = {"points": mouth_points, "bbox": [x1, y1, x2, y2]}
+        y1 = min(right_eye_points, key=lambda p: p[1])[1]
+        x1 = min(right_eye_points, key=lambda p: p[0])[0]
+        y2 = max(right_eye_points, key=lambda p: p[1])[1]
+        x2 = max(right_eye_points, key=lambda p: p[0])[0]
+        bbox = [x1, y1, x2, y2]
+        right_cropped = image[bbox[1]:bbox[3], bbox[0]:bbox[2]]
+        right_cropped = cv2.cvtColor(right_cropped, cv2.COLOR_RGB2GRAY)
+        _, _, min_loc, _ = cv2.minMaxLoc(right_cropped)
+        data["right_eye"] = {"points": right_eye_points, "bbox": bbox,
+                             "pupil": {"center": min_loc, "radius": 5}}
 
-            data["rotation3d"] = {"pitch": x, "yaw": y, "roll": z}
+        # horizontal distance of eye
+        aspect_ratio = (face_landmarks.landmark[45].y - face_landmarks.landmark[159].y) / (
+                    face_landmarks.landmark[133].x - face_landmarks.landmark[33].x)
+        # right_cropped = frame[right_eye[1]:right_eye[3], right_eye[0]:right_eye[2]]
+        # right_cropped = cv2.cvtColor(right_cropped, cv2.COLOR_RGB2GRAY)
+        # _, _, min_loc, _ = cv2.minMaxLoc(right_cropped)
+        # cv2.circle(frame, [min_loc[0]+right_eye[0], min_loc[1]+right_eye[1]], 5, (255, 255, 255), 1)
+        data["right_eye"]["aspect_ratio"] = aspect_ratio
+        # tmp2 = [x2, y1, y2]
 
-            data["face"] = True
+        # y1 = min(tmp1[1], tmp1[2], tmp2[1], tmp2[3])
+        # y2 = max(tmp1[1], tmp1[2], tmp2[1], tmp2[3])
+
+        y1 = min(mouth_points, key=lambda p: p[1])[1]
+        x1 = min(mouth_points, key=lambda p: p[0])[0]
+        y2 = max(mouth_points, key=lambda p: p[1])[1]
+        x1 = max(mouth_points, key=lambda p: p[0])[0]
+        data["mouth"] = {"points": mouth_points, "bbox": [x1, y1, x2, y2]}
+        aspect_ratio = (face_landmarks.landmark[15].y - face_landmarks.landmark[12].y) / (
+                    face_landmarks.landmark[292].x - face_landmarks.landmark[78].x)
+        # I have no clue what I'm doing
+        data["mouth"]["aspect_ratio"] = aspect_ratio
+        data["mouth"]["distance"] = (face_landmarks.landmark[292].x - face_landmarks.landmark[78].x) / (
+                max(face_landmarks.landmark, key=lambda x: x.x).x - max(face_landmarks.landmark, key=lambda y: y.y).y)
+
+        data["face"] = True
     return data
