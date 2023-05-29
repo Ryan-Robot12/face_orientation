@@ -18,6 +18,62 @@ right_eye_indexes = [33, 246, 161, 160, 159, 158, 157, 173, 133, 154, 153, 145, 
 # inner edge of lip
 mouth_indexes = [78, 183, 42, 41, 38, 12, 268, 271, 272, 407, 292, 325, 319, 403, 316, 15, 86, 179, 89, 96]
 
+# open/closed, open=True
+# left, right
+last_state = [True, True]
+
+min_consec_frames = 2
+current_frames = [0, 0]
+# pixel change
+change_threshold = 15
+
+
+def is_open(box, pupil_loc, is_left):
+    global current_frames, last_state, min_consec_frames, change_threshold
+    index = 0 if is_left else 1
+    # y1, y2
+    tmp = [0, 0]
+    loc = list(pupil_loc)
+    value = box[loc[1], loc[0]]
+    initial = value
+    try:
+        while abs(value - initial) < change_threshold:
+            loc[1] -= 2
+            value = box[loc[1], loc[0]]
+            # cv2.circle(frame, [loc[0] + right_eye[0], loc[1] + right_eye[1]], 2, (255, 255, 255), 1)
+    except IndexError:
+        pass
+    tmp[0] = loc[1]
+    loc = list(pupil_loc)
+    value = box[loc[1], loc[0]]
+    initial = value
+    try:
+        while abs(value - initial) < change_threshold:
+            loc[1] += 2
+            value = box[loc[1], loc[0]]
+            # cv2.circle(frame, [loc[0] + right_eye[0], loc[1] + right_eye[1]], 2, (255, 255, 255), 1)
+    except IndexError:
+        pass
+    tmp[1] = loc[1]
+    ratio = (box.shape[1]) / (tmp[1] - tmp[0])
+    # cv2.putText(frame, str(ratio), (50, 50), cv2.FONT_HERSHEY_SIMPLEX, 2, (255, 0, 0), 2)
+    if ratio >= 4:
+        if last_state[index]:
+            current_frames[index] += 1
+        else:
+            current_frames[index] = 0
+    else:
+        if not last_state[index]:
+            current_frames[index] += 1
+        else:
+            current_frames[index] = 0
+    if current_frames[index] > min_consec_frames:
+        if ratio < 4:
+            last_state[index] = True
+        else:
+            last_state[index] = False
+    return last_state[index]
+
 
 def get_data(image: np.ndarray):
     """
@@ -104,11 +160,11 @@ def get_data(image: np.ndarray):
         bbox = [x1, y1, x2, y2]
         aspect_ratio = (face_landmarks.landmark[263].x - face_landmarks.landmark[362].x) / (
                     face_landmarks.landmark[374].y - face_landmarks.landmark[386].y)
-        left_cropped = image[bbox[1]:bbox[3], bbox[0]:bbox[2]]
+        left_cropped = image[bbox[1]:bbox[3], bbox[0]+2:bbox[2]-2]
         left_cropped = cv2.cvtColor(left_cropped, cv2.COLOR_RGB2GRAY)
         _, _, min_loc, _ = cv2.minMaxLoc(left_cropped)
         data["left_eye"] = {"points": left_eye_points, "bbox": bbox,
-                            "pupil": {"center": [min_loc[0]+bbox[0], min_loc[1]+bbox[1]], "radius": 5}}
+                            "pupil": {"center": [min_loc[0]+bbox[0], min_loc[1]+bbox[1]], "radius": 5}, "is_open": is_open(left_cropped, min_loc, True)}
         data["left_eye"]["aspect_ratio"] = aspect_ratio
 
         y1 = min(right_eye_points, key=lambda p: p[1])[1]
@@ -116,11 +172,11 @@ def get_data(image: np.ndarray):
         y2 = max(right_eye_points, key=lambda p: p[1])[1]
         x2 = max(right_eye_points, key=lambda p: p[0])[0]
         bbox = [x1, y1, x2, y2]
-        right_cropped = image[bbox[1]:bbox[3], bbox[0]:bbox[2]]
+        right_cropped = image[bbox[1]:bbox[3], bbox[0]+2:bbox[2]-2]
         right_cropped = cv2.cvtColor(right_cropped, cv2.COLOR_RGB2GRAY)
         _, _, min_loc, _ = cv2.minMaxLoc(right_cropped)
         data["right_eye"] = {"points": right_eye_points, "bbox": bbox,
-                             "pupil": {"center": [min_loc[0]+bbox[0], min_loc[1]+bbox[1]], "radius": 5}}
+                             "pupil": {"center": [min_loc[0]+bbox[0], min_loc[1]+bbox[1]], "radius": 5}, "is_open": is_open(right_cropped, min_loc, False)}
 
         # horizontal distance of eye
         aspect_ratio = (face_landmarks.landmark[45].y - face_landmarks.landmark[159].y) / (

@@ -44,6 +44,7 @@ while True:
     # print(data["left_eye"]["pupil"])
     cv2.circle(image, data["left_eye"]["pupil"]["center"], data["left_eye"]["pupil"]["radius"], (255, 255, 255), 1)
     cv2.circle(image, data["right_eye"]["pupil"]["center"], data["right_eye"]["pupil"]["radius"], (255, 255, 255), 1)
+    print(data["left_eye"]["is_open"], data["right_eye"]["is_open"])
 
     # min eye aspect ratio, max eye aspect ratio, mouth distance, ???, ???
     # try:
