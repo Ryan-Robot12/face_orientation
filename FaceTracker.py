@@ -22,25 +22,34 @@ mouth_indexes = [78, 183, 42, 41, 38, 12, 268, 271, 272, 407, 292, 325, 319, 403
 # left, right
 last_state = [True, True]
 
-min_consec_frames = 2
+min_consec_frames = 1
 current_frames = [0, 0]
 # pixel change
 change_threshold = 15
 
 
 def is_open(box, pupil_loc, is_left):
+    """
+    Checks if an eye is open using some sketchy logic
+    :param box: The GRAYSCALE portion of the frame containing the eye
+    :param pupil_loc: Location of the pupil
+    :param is_left: If it is the left eye or not
+    :return: Whether the eye is open
+    """
     global current_frames, last_state, min_consec_frames, change_threshold
     index = 0 if is_left else 1
     # y1, y2
     tmp = [0, 0]
+    # pupil_loc is returned by cv2.minMaxLoc and is a tuple, therefore unassignable
     loc = list(pupil_loc)
     value = box[loc[1], loc[0]]
     initial = value
     try:
+        # move up in the image until the pixel is a different color
+        # usually iris --> eyelid
         while abs(value - initial) < change_threshold:
             loc[1] -= 2
             value = box[loc[1], loc[0]]
-            # cv2.circle(frame, [loc[0] + right_eye[0], loc[1] + right_eye[1]], 2, (255, 255, 255), 1)
     except IndexError:
         pass
     tmp[0] = loc[1]
@@ -48,15 +57,16 @@ def is_open(box, pupil_loc, is_left):
     value = box[loc[1], loc[0]]
     initial = value
     try:
+        # repeat above except moving down
         while abs(value - initial) < change_threshold:
             loc[1] += 2
             value = box[loc[1], loc[0]]
-            # cv2.circle(frame, [loc[0] + right_eye[0], loc[1] + right_eye[1]], 2, (255, 255, 255), 1)
     except IndexError:
         pass
     tmp[1] = loc[1]
     ratio = (box.shape[1]) / (tmp[1] - tmp[0])
-    # cv2.putText(frame, str(ratio), (50, 50), cv2.FONT_HERSHEY_SIMPLEX, 2, (255, 0, 0), 2)
+
+    # This code is terrible, but it works, so I'm not gonna touch it
     if ratio >= 4:
         if last_state[index]:
             current_frames[index] += 1
@@ -84,22 +94,26 @@ def get_data(image: np.ndarray):
     right_eye: {points, bbox, pupil: {center, radius},mouth: {points, bbox}}. bbox = [x1, y1, x2, y2]. Points are pixel
     coordinates. roll/pitch/yaw are in degrees.
     """
+    # performance yay
     image.flags.writeable = False
     results = face_mesh.process(image)
     image.flags.writeable = True
-    image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
-
-    img_h, img_w, img_c = image.shape
-    face_3d = []
-    face_2d = []
+    # image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
 
     data = {
         "face": False,
         "rotation3d": {"roll": 0, "pitch": 0, "yaw": 0},
-        "left_eye": {"points": [], "bbox": [], "pupil": {"center": [], "radius": 0}},
-        "right_eye": {"points": [], "bbox": [], "pupil": {"center": [], "radius": 0}},
+        "left_eye": {"points": [], "bbox": [], "pupil": {"center": [], "radius": 0}, "is_open": last_state[0]},
+        "right_eye": {"points": [], "bbox": [], "pupil": {"center": [], "radius": 0}, "is_open": last_state[1]},
         "mouth": {"points": [], "bbox": []}
     }
+
+    # not my code
+    # https://towardsdatascience.com/head-pose-estimation-using-python-d165d3541600
+    img_h, img_w, img_c = image.shape
+    face_3d = []
+    face_2d = []
+
     if results.multi_face_landmarks:
         data["face"] = True
         face_landmarks = results.multi_face_landmarks[0]
@@ -117,7 +131,7 @@ def get_data(image: np.ndarray):
                 # Get the 3D Coordinates
                 face_3d.append([x, y, lm.z])
 
-                # Convert it to the NumPy array
+        # Convert it to the NumPy array
         face_2d = np.array(face_2d, dtype=np.float64)
 
         # Convert it to the NumPy array
@@ -130,22 +144,28 @@ def get_data(image: np.ndarray):
                                [0, 0, 1]])
         dist_matrix = np.zeros((4, 1), dtype=np.float64)
 
+        # _ --> basically ignore this
         _, rot_vec, _ = cv2.solvePnP(face_3d, face_2d, cam_matrix, dist_matrix)
         rmat, _ = cv2.Rodrigues(rot_vec)
 
         # angles, mtxR, mtxQ, Qx, Qy, Qz = cv2.RQDecomp3x3(rmat)
         angles, _, _, _, _, _ = cv2.RQDecomp3x3(rmat)
+        # offset the angles because they would be wrong otherwise
         x = angles[0] * 720 - 26
         y = (angles[1] * 720) - 5
 
+        # back to my (bad) code
+        # right eye, right corner
         l1 = face_landmarks.landmark[33]
-        # left eye left corner
+        # left eye, left corner
         l2 = face_landmarks.landmark[263]
+        # find the roll using trig
         xdiff = (l2.x - l1.x) * img_w
         ydiff = (l2.y - l1.y) * img_h
         z = (math.atan2(ydiff / 2, xdiff / 2) * 180 / math.pi) + 4
         data["rotation3d"] = {"pitch": x, "yaw": y, "roll": z}
 
+        # yay list comprehension
         left_eye_points = [(int(face_landmarks.landmark[i].x * img_w), int(face_landmarks.landmark[i].y * img_h)) for i
                            in left_eye_indexes]
         right_eye_points = [(int(face_landmarks.landmark[i].x * img_w), int(face_landmarks.landmark[i].y * img_h)) for i
@@ -153,20 +173,20 @@ def get_data(image: np.ndarray):
         mouth_points = [(int(face_landmarks.landmark[i].x * img_w), int(face_landmarks.landmark[i].y * img_h)) for i in
                         mouth_indexes]
 
+        # find bounding boxes
         y1 = min(left_eye_points, key=lambda p: p[1])[1]
         x1 = min(left_eye_points, key=lambda p: p[0])[0]
         y2 = max(left_eye_points, key=lambda p: p[1])[1]
         x2 = max(left_eye_points, key=lambda p: p[0])[0]
         bbox = [x1, y1, x2, y2]
-        aspect_ratio = (face_landmarks.landmark[263].x - face_landmarks.landmark[362].x) / (
-                    face_landmarks.landmark[374].y - face_landmarks.landmark[386].y)
+        # find the pupil (darkest spot in image)
         left_cropped = image[bbox[1]:bbox[3], bbox[0]+2:bbox[2]-2]
         left_cropped = cv2.cvtColor(left_cropped, cv2.COLOR_RGB2GRAY)
         _, _, min_loc, _ = cv2.minMaxLoc(left_cropped)
         data["left_eye"] = {"points": left_eye_points, "bbox": bbox,
                             "pupil": {"center": [min_loc[0]+bbox[0], min_loc[1]+bbox[1]], "radius": 5}, "is_open": is_open(left_cropped, min_loc, True)}
-        data["left_eye"]["aspect_ratio"] = aspect_ratio
 
+        # repeat above
         y1 = min(right_eye_points, key=lambda p: p[1])[1]
         x1 = min(right_eye_points, key=lambda p: p[0])[0]
         y2 = max(right_eye_points, key=lambda p: p[1])[1]
@@ -178,30 +198,12 @@ def get_data(image: np.ndarray):
         data["right_eye"] = {"points": right_eye_points, "bbox": bbox,
                              "pupil": {"center": [min_loc[0]+bbox[0], min_loc[1]+bbox[1]], "radius": 5}, "is_open": is_open(right_cropped, min_loc, False)}
 
-        # horizontal distance of eye
-        aspect_ratio = (face_landmarks.landmark[45].y - face_landmarks.landmark[159].y) / (
-                    face_landmarks.landmark[133].x - face_landmarks.landmark[33].x)
-        # right_cropped = frame[right_eye[1]:right_eye[3], right_eye[0]:right_eye[2]]
-        # right_cropped = cv2.cvtColor(right_cropped, cv2.COLOR_RGB2GRAY)
-        # _, _, min_loc, _ = cv2.minMaxLoc(right_cropped)
-        # cv2.circle(frame, [min_loc[0]+right_eye[0], min_loc[1]+right_eye[1]], 5, (255, 255, 255), 1)
-        data["right_eye"]["aspect_ratio"] = aspect_ratio
-        # tmp2 = [x2, y1, y2]
-
-        # y1 = min(tmp1[1], tmp1[2], tmp2[1], tmp2[3])
-        # y2 = max(tmp1[1], tmp1[2], tmp2[1], tmp2[3])
-
+        # find the bounding box again
         y1 = min(mouth_points, key=lambda p: p[1])[1]
         x1 = min(mouth_points, key=lambda p: p[0])[0]
         y2 = max(mouth_points, key=lambda p: p[1])[1]
-        x1 = max(mouth_points, key=lambda p: p[0])[0]
+        x2 = max(mouth_points, key=lambda p: p[0])[0]
         data["mouth"] = {"points": mouth_points, "bbox": [x1, y1, x2, y2]}
-        aspect_ratio = (face_landmarks.landmark[15].y - face_landmarks.landmark[12].y) / (
-                    face_landmarks.landmark[292].x - face_landmarks.landmark[78].x)
-        # I have no clue what I'm doing
-        data["mouth"]["aspect_ratio"] = aspect_ratio
-        data["mouth"]["distance"] = (face_landmarks.landmark[292].x - face_landmarks.landmark[78].x) / (
-                max(face_landmarks.landmark, key=lambda x: x.x).x - max(face_landmarks.landmark, key=lambda y: y.y).y)
 
         data["face"] = True
     return data
