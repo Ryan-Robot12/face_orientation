@@ -41,6 +41,7 @@ while True:
         cv2.circle(image, point, 2, (255, 255, 255), 1)
     for point in data["mouth"]["points"]:
         cv2.circle(image, point, 2, (255, 255, 255), 1)
+    # print(data["left_eye"]["pupil"])
     cv2.circle(image, data["left_eye"]["pupil"]["center"], data["left_eye"]["pupil"]["radius"], (255, 255, 255), 1)
     cv2.circle(image, data["right_eye"]["pupil"]["center"], data["right_eye"]["pupil"]["radius"], (255, 255, 255), 1)
 

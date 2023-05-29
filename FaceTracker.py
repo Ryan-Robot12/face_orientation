@@ -108,7 +108,7 @@ def get_data(image: np.ndarray):
         left_cropped = cv2.cvtColor(left_cropped, cv2.COLOR_RGB2GRAY)
         _, _, min_loc, _ = cv2.minMaxLoc(left_cropped)
         data["left_eye"] = {"points": left_eye_points, "bbox": bbox,
-                            "pupil": {"center": min_loc, "radius": 5}}
+                            "pupil": {"center": [min_loc[0]+bbox[0], min_loc[1]+bbox[1]], "radius": 5}}
         data["left_eye"]["aspect_ratio"] = aspect_ratio
 
         y1 = min(right_eye_points, key=lambda p: p[1])[1]
@@ -120,7 +120,7 @@ def get_data(image: np.ndarray):
         right_cropped = cv2.cvtColor(right_cropped, cv2.COLOR_RGB2GRAY)
         _, _, min_loc, _ = cv2.minMaxLoc(right_cropped)
         data["right_eye"] = {"points": right_eye_points, "bbox": bbox,
-                             "pupil": {"center": min_loc, "radius": 5}}
+                             "pupil": {"center": [min_loc[0]+bbox[0], min_loc[1]+bbox[1]], "radius": 5}}
 
         # horizontal distance of eye
         aspect_ratio = (face_landmarks.landmark[45].y - face_landmarks.landmark[159].y) / (
