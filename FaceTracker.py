@@ -14,9 +14,9 @@ right_eye_indexes = [33, 246, 161, 160, 159, 158, 157, 173, 133, 154, 153, 145, 
 # outside of mouth
 # mouth_indexes = [61, 185, 40, 39, 87, 0, 367, 269, 270, 409, 291, 375, 321, 314, 17, 84, 181, 91, 146]
 # outer edge of lip
-# mouth_indexes = [76, 184, 74, 73, 72, 11, 302, 303, 304, 408, 292, 320, 404, 315, 16, 85, 180, 90, 77]
+mouth_indexes = [76, 184, 74, 73, 72, 11, 302, 303, 304, 408, 292, 320, 404, 315, 16, 85, 180, 90, 77]
 # inner edge of lip
-mouth_indexes = [78, 183, 42, 41, 38, 12, 268, 271, 272, 407, 292, 325, 319, 403, 316, 15, 86, 179, 89, 96]
+# mouth_indexes = [78, 183, 42, 41, 38, 12, 268, 271, 272, 407, 292, 325, 319, 403, 316, 15, 86, 179, 89, 96]
 
 # open/closed, open=True
 # left, right
@@ -87,12 +87,21 @@ def is_open(box, pupil_loc, is_left):
 
 def get_data(image: np.ndarray):
     """
-    Gets the face data from an image
+    Gets the face data from an image.
+    The data is formatted as follows:
+    \n     face: If a face was detected
+    | face_bbox: The face bounding box
+    | rotation3d: pitch, yaw, roll in a dictionary.
+    | Looking up is positive pitch, looking right is positive yaw, head rotation clockwise is positive roll
+    | left_eye: A dictionary with the structure {points, bbox, pupil: {center, radius}, is_open}
+    | right_eye: A dictionary with the structure {points, bbox, pupil: {center, radius}, is_open}
+    | mouth: A dictionary with structure [points, bbox]
+    |
+    | Bounding boxes are [x1, y1, x2, y2]
+    | Pitch/yaw/roll are in degrees
+    | All other units are in pixels relative to the top left corner of the image
     :param image: A numpy array of image in color format RGB
-    :return: The data
-    formatted as follows: {rotation3d: {roll, pitch, yaw}, left_eye: {points, bbox, pupil: {center, radius},
-    right_eye: {points, bbox, pupil: {center, radius},mouth: {points, bbox}}. bbox = [x1, y1, x2, y2]. Points are pixel
-    coordinates. roll/pitch/yaw are in degrees.
+    :return: The image data
     """
     # performance yay
     image.flags.writeable = False
@@ -102,6 +111,7 @@ def get_data(image: np.ndarray):
 
     data = {
         "face": False,
+        "face_bbox": [],
         "rotation3d": {"roll": 0, "pitch": 0, "yaw": 0},
         "left_eye": {"points": [], "bbox": [], "pupil": {"center": [], "radius": 0}, "is_open": last_state[0]},
         "right_eye": {"points": [], "bbox": [], "pupil": {"center": [], "radius": 0}, "is_open": last_state[1]},
@@ -117,6 +127,11 @@ def get_data(image: np.ndarray):
     if results.multi_face_landmarks:
         data["face"] = True
         face_landmarks = results.multi_face_landmarks[0]
+        x1 = min(face_landmarks.landmark, key=lambda p: p.x)
+        y1 = max(face_landmarks.landmark, key=lambda p: p.y)
+        x2 = max(face_landmarks.landmark, key=lambda p: p.x)
+        y2 = max(face_landmarks.landmark, key=lambda p: p.y)
+        data["face_bbox"] = [x1, y1, x2, y2]
         for idx, lm in enumerate(face_landmarks.landmark):
             if idx == 33 or idx == 263 or idx == 1 or idx == 61 or idx == 291 or idx == 199:
                 # if idx == 1:
@@ -163,7 +178,7 @@ def get_data(image: np.ndarray):
         xdiff = (l2.x - l1.x) * img_w
         ydiff = (l2.y - l1.y) * img_h
         z = (math.atan2(ydiff / 2, xdiff / 2) * 180 / math.pi) + 4
-        data["rotation3d"] = {"pitch": x, "yaw": y, "roll": z}
+        data["rotation3d"] = {"pitch": x, "yaw": -1 * y, "roll": -1 * z}
 
         # yay list comprehension
         left_eye_points = [(int(face_landmarks.landmark[i].x * img_w), int(face_landmarks.landmark[i].y * img_h)) for i

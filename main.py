@@ -2,7 +2,7 @@ from FaceTracker import get_data
 import socket
 import cv2
 
-# webcam
+# camera object
 cap = cv2.VideoCapture(0)
 
 # for controlling an avatar hopefully
@@ -10,6 +10,21 @@ cap = cv2.VideoCapture(0)
 # address = ('127.0.0.1', 5066)
 # s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 # s.connect(address)
+
+"""
+Data from get_data:
+face: If a face was detected
+face_bbox: The face bounding box
+rotation3d: pitch, yaw, roll in a dictionary.
+    Up is positive pitch, right is positive yaw, rotation head clockwise is positive roll
+left_eye: A dictionary with the structure {points, bbox, pupil: {center, radius}, is_open}
+right_eye: A dictionary with the structure {points, bbox, pupil: {center, radius}, is_open}
+mouth: A dictionary with structure [points, bbox]
+
+Bounding boxes are [x1, y1, x2, y2]
+Pitch/yaw/roll are in degrees
+All other units are in pixels relative to the top left corner of the image
+"""
 
 while True:
     # read image
@@ -30,10 +45,7 @@ while True:
     # draw a circle around the center
     cv2.circle(image, data["left_eye"]["pupil"]["center"], data["left_eye"]["pupil"]["radius"], (255, 255, 255), 1)
     cv2.circle(image, data["right_eye"]["pupil"]["center"], data["right_eye"]["pupil"]["radius"], (255, 255, 255), 1)
-
-    # put text if the eyes are open/closed
-    text = f"[{data['left_eye']['is_open']}, {data['right_eye']['is_open']}]"
-    cv2.putText(image, text, (25, image.shape[0] - 25), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 0, 0), 1)
+    print(data["rotation3d"])
 
     # show the image
     cv2.imshow("Image", image)
